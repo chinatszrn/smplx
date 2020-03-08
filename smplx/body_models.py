@@ -43,7 +43,7 @@ from .vertex_joint_selector import VertexJointSelector
 
 ModelOutput = namedtuple('ModelOutput',
                          ['vertices', 'joints', 'full_pose', 'betas',
-                          'global_orient',
+                          'global_orient', 'global_scale',
                           'body_pose', 'expression',
                           'left_hand_pose', 'right_hand_pose',
                           'jaw_pose'])
@@ -238,6 +238,10 @@ class SMPL(nn.Module):
             global_orient = nn.Parameter(default_global_orient,
                                          requires_grad=True)
             self.register_parameter('global_orient', global_orient)
+            
+        global_scale = torch.ones([batch_size, 1, 1], dtype=dtype)
+        global_scale = nn.Parameter(global_scale, requires_grad=True)
+        self.register_parameter('global_scale', global_scale)
 
         if create_body_pose:
             if body_pose is None:
@@ -315,7 +319,7 @@ class SMPL(nn.Module):
     def extra_repr(self):
         return 'Number of betas: {}'.format(self.NUM_BETAS)
 
-    def forward(self, betas=None, body_pose=None, global_orient=None,
+    def forward(self, betas=None, body_pose=None, global_orient=None, global_scale=None, 
                 transl=None, return_verts=True, return_full_pose=False, pose2rot=True,
                 **kwargs):
         ''' Forward pass for the SMPL model
@@ -352,8 +356,8 @@ class SMPL(nn.Module):
         '''
         # If no shape and pose parameters are passed along, then use the
         # ones from the module
-        global_orient = (global_orient if global_orient is not None else
-                         self.global_orient)
+        global_orient = (global_orient if global_orient is not None else self.global_orient)
+        global_scale = (global_scale if global_scale is not None else self.global_scale)
         body_pose = body_pose if body_pose is not None else self.body_pose
         betas = betas if betas is not None else self.betas
 
@@ -383,9 +387,13 @@ class SMPL(nn.Module):
         if apply_trans:
             joints += transl.unsqueeze(dim=1)
             vertices += transl.unsqueeze(dim=1)
+            
+        joints = global_scale * joints
+        vertices = global_scale * vertices
 
         output = ModelOutput(vertices=vertices if return_verts else None,
                              global_orient=global_orient,
+                             global_scale=global_scale,
                              body_pose=body_pose,
                              joints=joints,
                              betas=betas,
