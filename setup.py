@@ -65,6 +65,7 @@ setup(name=NAME,
       author_email=EMAIL,
       python_requires=REQUIRES_PYTHON,
       url=URL,
+      zip_safe=False,
       install_requires=[
           'numpy>=1.16.2',
           'torch>=1.0.1.post2',
