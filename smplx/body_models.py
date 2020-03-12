@@ -20,6 +20,7 @@ from __future__ import division
 
 import os
 import os.path as osp
+import math
 
 try:
     import cPickle as pickle
@@ -43,7 +44,7 @@ from .vertex_joint_selector import VertexJointSelector
 
 ModelOutput = namedtuple('ModelOutput',
                          ['vertices', 'joints', 'full_pose', 'betas',
-                          'global_orient', 'global_scale',
+                          'global_orient', 'global_scale', 'global_translation',
                           'body_pose', 'expression',
                           'left_hand_pose', 'right_hand_pose',
                           'jaw_pose'])
@@ -228,6 +229,7 @@ class SMPL(nn.Module):
             if global_orient is None:
                 default_global_orient = torch.zeros([batch_size, 3],
                                                     dtype=dtype)
+                default_global_orient[:, 2] = math.pi
             else:
                 if 'torch.Tensor' in str(type(global_orient)):
                     default_global_orient = global_orient.clone().detach()
@@ -239,9 +241,15 @@ class SMPL(nn.Module):
                                          requires_grad=True)
             self.register_parameter('global_orient', global_orient)
             
-        global_scale = torch.ones([batch_size, 1, 1], dtype=dtype)
+        global_scale = torch.ones([batch_size, 1, 1], dtype=dtype) * 470
         global_scale = nn.Parameter(global_scale, requires_grad=True)
         self.register_parameter('global_scale', global_scale)
+
+        global_translation = torch.zeros([batch_size, 1, 2], dtype=dtype)
+        global_translation[:, :, 0] = 768 / 2
+        global_translation[:, :, 1] = 1024 / 2
+        global_translation = nn.Parameter(global_translation, requires_grad=True)
+        self.register_parameter('global_translation', global_translation)
 
         if create_body_pose:
             if body_pose is None:
@@ -319,7 +327,7 @@ class SMPL(nn.Module):
     def extra_repr(self):
         return 'Number of betas: {}'.format(self.NUM_BETAS)
 
-    def forward(self, betas=None, body_pose=None, global_orient=None, global_scale=None, 
+    def forward(self, betas=None, body_pose=None, global_orient=None, global_scale=None, global_translation=None,
                 transl=None, return_verts=True, return_full_pose=False, pose2rot=True,
                 **kwargs):
         ''' Forward pass for the SMPL model
@@ -358,8 +366,17 @@ class SMPL(nn.Module):
         # ones from the module
         global_orient = (global_orient if global_orient is not None else self.global_orient)
         global_scale = (global_scale if global_scale is not None else self.global_scale)
+        global_translation = global_translation if global_translation is not None else self.global_translation
         body_pose = body_pose if body_pose is not None else self.body_pose
         betas = betas if betas is not None else self.betas
+
+        global_scale.data[:] = global_scale.data.clamp(460, 480)
+
+        betas.data[:, 1] = betas.data[:, 1].clamp(1.5, 3)
+        betas.data[:, 6] = betas.data[:, 6].clamp(-4, 0)
+        betas.data[:, 9] = betas.data[:, 9].clamp(-4, 0)
+
+        # body_pose.fill_(0)
 
         apply_trans = transl is not None or hasattr(self, 'transl')
         if transl is None and hasattr(self, 'transl'):
@@ -391,9 +408,24 @@ class SMPL(nn.Module):
         joints = global_scale * joints
         vertices = global_scale * vertices
 
+        # joints[:, :, 1] *= -1
+        # vertices[:, :, 1] *= -1
+
+        joints[:, :, :2] += global_translation
+        vertices[:, :, :2] += global_translation
+
+        # import cv2
+        # canvas = np.zeros((1024, 768, 3), dtype=np.uint8)
+        # allv = vertices[0].detach().cpu().numpy()
+        # for pt in allv.astype(np.int32):
+        #     cv2.circle(canvas, (pt[0], pt[1]), 1, (0, 255, 0), 1)
+        # cv2.imshow('canvas', canvas)
+        # cv2.waitKey()
+
         output = ModelOutput(vertices=vertices if return_verts else None,
                              global_orient=global_orient,
                              global_scale=global_scale,
+                             global_translation=global_translation,
                              body_pose=body_pose,
                              joints=joints,
                              betas=betas,
