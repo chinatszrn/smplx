@@ -498,6 +498,11 @@ class SMPLH(SMPL):
         self.num_pca_comps = num_pca_comps
         self.flat_hand_mean = flat_hand_mean
 
+        #zhourunnan
+        global_scale = torch.ones([batch_size, 1, 1], dtype=dtype)
+        global_scale = nn.Parameter(global_scale, requires_grad=True)
+        self.register_parameter('global_scale', global_scale)
+
         left_hand_components = data_struct.hands_componentsl[:num_pca_comps]
         right_hand_components = data_struct.hands_componentsr[:num_pca_comps]
 
@@ -577,7 +582,7 @@ class SMPLH(SMPL):
         msg += '\nFlat hand mean: {}'.format(self.flat_hand_mean)
         return msg
 
-    def forward(self, betas=None, global_orient=None, body_pose=None,
+    def forward(self, betas=None, global_orient=None, global_scale=None, body_pose=None,
                 left_hand_pose=None, right_hand_pose=None, transl=None,
                 return_verts=True, return_full_pose=False, pose2rot=True,
                 **kwargs):
@@ -587,6 +592,7 @@ class SMPLH(SMPL):
         # ones from the module
         global_orient = (global_orient if global_orient is not None else
                          self.global_orient)
+        global_scale = (global_scale if global_scale is not None else self.global_scale)
         body_pose = body_pose if body_pose is not None else self.body_pose
         betas = betas if betas is not None else self.betas
         left_hand_pose = (left_hand_pose if left_hand_pose is not None else
@@ -621,6 +627,9 @@ class SMPLH(SMPL):
         if self.joint_mapper is not None:
             joints = self.joint_mapper(joints)
 
+        joints = global_scale * joints
+        vertices = global_scale * vertices
+
         if apply_trans:
             joints += transl.unsqueeze(dim=1)
             vertices += transl.unsqueeze(dim=1)
@@ -629,6 +638,7 @@ class SMPLH(SMPL):
                              joints=joints,
                              betas=betas,
                              global_orient=global_orient,
+                             global_scale=global_scale,
                              body_pose=body_pose,
                              left_hand_pose=left_hand_pose,
                              right_hand_pose=right_hand_pose,
